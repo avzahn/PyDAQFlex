@@ -95,6 +95,11 @@ class MCCDevice(object):
             ret = self.send_message('?DEV:FPGACFG')
             if ret != 'DEV:FPGACFG=CONFIGURED':
                 raise IOError("Could not configure FPGA")
+                
+                
+        # for deciding if calls to simple_read need to calibrate
+        self.last_vrange = None
+        self.calib_data = None
 
     @classmethod
     def find_serial_numbers(cls):
@@ -242,7 +247,108 @@ class MCCDevice(object):
                     direction) and (endp.bDescriptorType == 5)
 
         return usb.util.find_descriptor(self._intf, custom_match=ep_match)
+        
+        
+    def simple_read(self,frequency = 1000,
+                        nsamples = 1024,
+                        lowchan = 0,
+                        highchan = 0,
+                        vrange = 10,
+                        cal = True):
+        """
+        Simple read function for people like us who don't
+        know how to use daqflex.
+        
+        Returns a numpy array (in the case of a single channel
+        read) or a list of numpy arrays (for multi channel reads)
+        containing the time stream data, in volts. If fd
+        lowchan = a and hichan = b, the 0th element of the
+        returned list corresponds to channel a, and the 
+        last element corresponds to channel b.
+        
+        :param cal: if false, don't check if calibration is 
+        needed and just return ADC units instead of volts
+        
+        :param lowchan: integer index for the lower inclusive
+        bound of channel numbers to scan
+        
+        :param highchan: integer index for the upper inclusive
+        bound of channel numbers to scan
+        
+        :param frequency: the actual sample rate on a given channel
+        will be frequency/n, where n is the number of channels
+        being scanned
+        
+        :param nsamples: must be a power of two
+        
+        
+        """
+        
+        def usage():
+            msg = """
+highchan, lowchan: must be integer
+        
+frequency: the actual sample rate on a given channel
+will be frequency/n, where n is the number of channels
+being scanned
 
+nsamples: must be a power of two. This is the total 
+number of samples taken, so each channel will get
+nsamples/n samples.
+"""
+            raise Exception(msg)
+        
+        if not(isinstance(lowchan,int) and isintance(highchan,int)):
+            usage()
+                    
+        if not isinstance(vrange,int):
+            usage()
+                    
+        if (nsamples % 2) != 0:
+            usage()
+        
+        # setup the scan
+        self.send_message("AISCAN:BIP%dV"%(vrange))
+        self.send_message("AISCAN:LOWCHAN=%d"%(lowchan))
+        self.send_message("AISCAN:HIGHCHAN=%d"%(highchan))
+        self.send_message("AISCAN:RATE=%d"%(frequency))
+        self.send_message("AISCAN:SAMPLES=%d"%(nsamples))
+        self.send_message("AISCAN:START")
+        
+        raw = self.read_scan_data(nsamples,frequency)
+        
+        self.send_message("AISCAN:STOP")
+        
+        if cal:
+            # check if we need to run a new calibration
+            if self.last_vrange != vrange:
+                self.last_vrange = vrange
+                self.calib_data = self.get_calib_data()
+            
+            self.scale_and_calibrate_data(raw, -vrange, vrange, self.calib_data)
+        
+        import numpy as np
+        
+        data = np.array(raw)
+        
+        if highchan == lowchan:
+            return out
+
+        # if this is a multichannel scan, the samples from each
+        # channel come back interleaved in a single one dimensional
+        # array, so we have to break them up into a numpy array
+        # for each channel
+
+        nchannels = 1 + highchan - lowchan
+        
+        channel_length = nsamples / nchannels
+        
+        out = [ np.empty(channel_length, dtype='int') for i in range(nchannels) ]
+        
+        for i in range(nchannels):
+            out[i] = data[i::nchannels]
+            
+        return out
 
 class USB_7202(MCCDevice):
     """USB-7202 card"""
@@ -297,3 +403,8 @@ class USB_204(MCCDevice):
     """USB-204 card"""
     max_counts = 0x0FFF
     id_product = 0x0114
+    
+class USB_1208FS(MCCDevice):
+    max_counts = 0x0FFF
+    id_product = 0x00e8
+
