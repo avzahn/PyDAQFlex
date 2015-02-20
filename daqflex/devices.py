@@ -99,7 +99,7 @@ class MCCDevice(object):
                 
         # for deciding if calls to simple_read need to calibrate
         self.last_vrange = None
-        self.calib_data = None
+        self.calib_data = {}
 
     @classmethod
     def find_serial_numbers(cls):
@@ -260,11 +260,11 @@ class MCCDevice(object):
         know how to use daqflex.
         
         Returns a numpy array (in the case of a single channel
-        read) or a list of numpy arrays (for multi channel reads)
-        containing the time stream data, in volts. If fd
-        lowchan = a and hichan = b, the 0th element of the
+        read) or a dictionary of numpy arrays (for multi channel reads)
+        containing the time stream data, in volts. If lowchan = a 
+        and highchan = b, the ath element of the
         returned list corresponds to channel a, and the 
-        last element corresponds to channel b.
+        bth element corresponds to channel b.
         
         :param cal: if false, don't check if calibration is 
         needed and just return ADC units instead of volts
@@ -323,15 +323,24 @@ nsamples/n samples.
             # check if we need to run a new calibration
             if self.last_vrange != vrange:
                 self.last_vrange = vrange
-                self.calib_data = self.get_calib_data()
+                
+                for i in range(lowchan, highchan+1)
+                    self.calib_data[i] = self.get_calib_data(i)
             
-            self.scale_and_calibrate_data(raw, -vrange, vrange, self.calib_data)
+            else:
+                # vrange hasn't changed and we only get calibration
+                # data if we don't already have it
+                for i in range(lowchan, highchan+1)
+                    if not(i in self.calib_data):
+                        self.calib_data[i] = self.get_calib_data(i)        
         
         import numpy as np
         
         data = np.array(raw)
         
         if highchan == lowchan:
+            if cal:
+                return self.scale_and_calibrate_data(out, -vrange, vrange, self.calib_data[lowchan])
             return out
 
         # if this is a multichannel scan, the samples from each
@@ -347,8 +356,14 @@ nsamples/n samples.
         
         for i in range(nchannels):
             out[i] = data[i::nchannels]
-            
-        return out
+            if cal:
+                out[i] = self.scale_and_calibrate_data(out[i], -vrange, vrange, self.calib_data[lowchan+i])
+                
+        d = {}
+        for i,arr in enumerate(out):
+            d[lowchan + i] = arr
+        
+        return d
 
 class USB_7202(MCCDevice):
     """USB-7202 card"""
