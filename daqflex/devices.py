@@ -298,7 +298,7 @@ nsamples/n samples.
 """
             raise Exception(msg)
         
-        if not(isinstance(lowchan,int) and isintance(highchan,int)):
+        if not(isinstance(lowchan,int) and isinstance(highchan,int)):
             usage()
                     
         if not isinstance(vrange,int):
@@ -308,7 +308,7 @@ nsamples/n samples.
             usage()
         
         # setup the scan
-        self.send_message("AISCAN:BIP%dV"%(vrange))
+        self.send_message("AISCAN:RANGE=BIP%dV"%(vrange))
         self.send_message("AISCAN:LOWCHAN=%d"%(lowchan))
         self.send_message("AISCAN:HIGHCHAN=%d"%(highchan))
         self.send_message("AISCAN:RATE=%d"%(frequency))
@@ -330,7 +330,7 @@ nsamples/n samples.
             else:
                 # vrange hasn't changed and we only get calibration
                 # data if we don't already have it
-                for i in range(lowchan, highchan+1)
+                for i in range(lowchan, highchan+1):
                     if not(i in self.calib_data):
                         self.calib_data[i] = self.get_calib_data(i)        
         
@@ -340,8 +340,8 @@ nsamples/n samples.
         
         if highchan == lowchan:
             if cal:
-                return self.scale_and_calibrate_data(out, -vrange, vrange, self.calib_data[lowchan])
-            return out
+                return self.scale_and_calibrate_data(data, -vrange, vrange, self.calib_data[lowchan])
+            return data
 
         # if this is a multichannel scan, the samples from each
         # channel come back interleaved in a single one dimensional
@@ -352,7 +352,7 @@ nsamples/n samples.
         
         channel_length = nsamples / nchannels
         
-        out = [ np.empty(channel_length, dtype='int') for i in range(nchannels) ]
+        out = [ 0 for i in range(nchannels) ]
         
         for i in range(nchannels):
             out[i] = data[i::nchannels]
