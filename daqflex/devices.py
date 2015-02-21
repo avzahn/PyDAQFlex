@@ -324,7 +324,7 @@ nsamples/n samples.
             if self.last_vrange != vrange:
                 self.last_vrange = vrange
                 
-                for i in range(lowchan, highchan+1)
+                for i in range(lowchan, highchan+1):
                     self.calib_data[i] = self.get_calib_data(i)
             
             else:
