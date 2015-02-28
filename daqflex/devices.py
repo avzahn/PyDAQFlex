@@ -328,7 +328,7 @@ each channel will get nsamples/n samples.
         
         if highchan == lowchan:
             if scale:
-				cal = self.calib_data[lowchan][mode][vrange_code]
+                cal = self.calib_data[lowchan][mode][vrange_code]
                 return self.scale_and_calibrate_data(data, -vrange, vrange, cal)
             return data
 
@@ -343,19 +343,19 @@ each channel will get nsamples/n samples.
         
         out = {}
         
-        for chan in range(lowchan, max(lowchan + 1, highchan):
-			
+        for chan in range(lowchan, max(lowchan + 1, highchan)):
+            
             out[i] = data[chan::nchannels]
             
             if scale:
-				
-				key = (chan, mode, vrange_code)
-				
-				if not ( key in self.calib_data ):
-					
-					self.calib_data[key] = self.get_calib_data(chan)
-					
-				cal = self.calib_data[key]
+                
+                key = (chan, mode, vrange_code)
+                
+                if not ( key in self.calib_data ):
+                    
+                    self.calib_data[key] = self.get_calib_data(chan)
+                    
+                cal = self.calib_data[key]
                 out[i] = self.scale_and_calibrate_data(out[i], -vrange, vrange, cal)
                 
         return out
