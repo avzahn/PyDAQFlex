@@ -47,7 +47,7 @@ class MCCDevice(object):
     id_product = None
     max_counts = None
     fpga_image = None
-
+    
     def __init__(self, serial_number=None):
         """
         Connect to a device with a given product id and serial number.
@@ -97,8 +97,10 @@ class MCCDevice(object):
                 raise IOError("Could not configure FPGA")
                 
                 
-        # for deciding if calls to simple_read need to calibrate
-        self.last_vrange = None
+        # dict indexed by channel, mode, and voltage range tuple
+        #   mode may be 'se' (single ended) or 'diff' (differential)
+        #   voltage range must be the daqflex code for that range
+        #     ex: self.calib_data[(0,'SE','BPI10V')]
         self.calib_data = {}
 
     @classmethod
@@ -254,7 +256,8 @@ class MCCDevice(object):
                         lowchan = 0,
                         highchan = 0,
                         vrange = 10,
-                        cal = True):
+                        mode = 'SE',
+                        scale = True):
         """
         Simple read function for people like us who don't
         know how to use daqflex.
@@ -266,8 +269,7 @@ class MCCDevice(object):
         returned list corresponds to channel a, and the 
         bth element corresponds to channel b.
         
-        :param cal: if false, don't check if calibration is 
-        needed and just return ADC units instead of volts
+        :param scale: if false, just return ADC units instead of volts
         
         :param lowchan: integer index for the lower inclusive
         bound of channel numbers to scan
@@ -279,6 +281,8 @@ class MCCDevice(object):
         will be frequency/n, where n is the number of channels
         being scanned
         
+        :param mode: 'SE' for single ended or 'DIFF' for differential
+        
         :param nsamples: must be a power of two
         
         
@@ -288,13 +292,12 @@ class MCCDevice(object):
             msg = """
 highchan, lowchan: must be integer
         
-frequency: the actual sample rate on a given channel
+frequency: the actual sample rate on a given channel 
 will be frequency/n, where n is the number of channels
 being scanned
 
-nsamples: must be a power of two. This is the total 
-number of samples taken, so each channel will get
-nsamples/n samples.
+nsamples: This is the total number of samples taken, so
+each channel will get nsamples/n samples.
 """
             raise Exception(msg)
         
@@ -303,12 +306,11 @@ nsamples/n samples.
                     
         if not isinstance(vrange,int):
             usage()
-                    
-        if (nsamples % 2) != 0:
-            usage()
+            
+        vrange_code = "BIP%dV"%(vrange)        
         
         # setup the scan
-        self.send_message("AISCAN:RANGE=BIP%dV"%(vrange))
+        self.send_message("AISCAN:RANGE="+vrange_code)
         self.send_message("AISCAN:LOWCHAN=%d"%(lowchan))
         self.send_message("AISCAN:HIGHCHAN=%d"%(highchan))
         self.send_message("AISCAN:RATE=%d"%(frequency))
@@ -318,29 +320,16 @@ nsamples/n samples.
         raw = self.read_scan_data(nsamples,frequency)
         
         self.send_message("AISCAN:STOP")
-        
-        if cal:
-            # check if we need to run a new calibration
-            if self.last_vrange != vrange:
-                self.last_vrange = vrange
-                
-                for i in range(lowchan, highchan+1):
-                    self.calib_data[i] = self.get_calib_data(i)
-            
-            else:
-                # vrange hasn't changed and we only get calibration
-                # data if we don't already have it
-                for i in range(lowchan, highchan+1):
-                    if not(i in self.calib_data):
-                        self.calib_data[i] = self.get_calib_data(i)        
+               
         
         import numpy as np
         
         data = np.array(raw)
         
         if highchan == lowchan:
-            if cal:
-                return self.scale_and_calibrate_data(data, -vrange, vrange, self.calib_data[lowchan])
+            if scale:
+				cal = self.calib_data[lowchan][mode][vrange_code]
+                return self.scale_and_calibrate_data(data, -vrange, vrange, cal)
             return data
 
         # if this is a multichannel scan, the samples from each
@@ -352,18 +341,24 @@ nsamples/n samples.
         
         channel_length = nsamples / nchannels
         
-        out = [ 0 for i in range(nchannels) ]
+        out = {}
         
-        for i in range(nchannels):
-            out[i] = data[i::nchannels]
-            if cal:
-                out[i] = self.scale_and_calibrate_data(out[i], -vrange, vrange, self.calib_data[lowchan+i])
+        for chan in range(lowchan, max(lowchan + 1, highchan):
+			
+            out[i] = data[chan::nchannels]
+            
+            if scale:
+				
+				key = (chan, mode, vrange_code)
+				
+				if not ( key in self.calib_data ):
+					
+					self.calib_data[key] = self.get_calib_data(chan)
+					
+				cal = self.calib_data[key]
+                out[i] = self.scale_and_calibrate_data(out[i], -vrange, vrange, cal)
                 
-        d = {}
-        for i,arr in enumerate(out):
-            d[lowchan + i] = arr
-        
-        return d
+        return out
 
 class USB_7202(MCCDevice):
     """USB-7202 card"""
