@@ -38,6 +38,9 @@ import time
 import usb
 from .utils import PollingThread
 
+import numpy as np
+from sys import stderr
+
 
 class MCCDevice(object):
     """
@@ -102,6 +105,10 @@ class MCCDevice(object):
         #   voltage range must be the daqflex code for that range
         #     ex: self.calib_data[(0,'SE','BPI10V')]
         self.calib_data = {}
+        
+        self.read_recursion_depth = 0
+        
+        self.conf = None
 
     @classmethod
     def find_serial_numbers(cls):
@@ -284,10 +291,71 @@ class MCCDevice(object):
         :param mode: 'SE' for single ended or 'DIFF' for differential
         
         :param nsamples: must be a power of two
-        
-        
         """
+
+        self.configure_read(frequency,nsamples,lowchan,highchan,vrange,mode)
+        self.send_message("AISCAN:START")
+        raw = self.read_scan_data(nsamples,frequency)
         
+        self.stop()
+               
+        vrange_code = "BIP%dV"%(vrange)
+        
+        data = np.array(raw)
+        
+        # No idea why this is happening, but there could be
+        # a pattern to it. Begin crappy workaround:
+        if len(raw) != nsamples:
+            if self.read_recursion_depth < 10:
+                self.read_recursion_depth += 1
+                print>>stderr, "incorrect read length: %d samples, %d retries" %(len(raw),self.read_recursion_depth)
+#                self.flush_input_data() # this lines mere presence seems to mess things up somehow...
+                return self.simple_read(frequency,nsamples,lowchan,highchan,vrange,mode,scale)
+            else:
+                self.read_recursion_depth = 0
+                
+        else:
+            self.read_recursion_depth = 0
+
+        # if this is a multichannel scan, the samples from each
+        # channel come back interleaved in a single one dimensional
+        # array, so we have to break them up into a numpy array
+        # for each channel
+
+        nchannels = 1 + highchan - lowchan
+        
+        channel_length = nsamples / nchannels
+        
+        out = {}
+        
+        for chan in range(lowchan, max(lowchan + 1, highchan)):
+            
+            out[chan] = data[chan::nchannels]
+            
+            if scale:
+                
+                key = (chan, mode, vrange_code)
+                
+                if not ( key in self.calib_data ):
+                    
+                    self.calib_data[key] = self.get_calib_data(chan)
+                    
+                cal = self.calib_data[key]
+                out[chan] = self.scale_and_calibrate_data(out[chan], -vrange, vrange, cal)
+                
+        if len(out) == 1:
+            for key in out:
+                out = out[key]
+                
+        return out
+        
+    def configure_read(self, frequency = 1000,
+                        nsamples = 1024,
+                        lowchan = 0,
+                        highchan = 0,
+                        vrange = 10,
+                        mode = 'SE'):
+                            
         def usage():
             msg = """
 highchan, lowchan: must be integer
@@ -306,59 +374,27 @@ each channel will get nsamples/n samples.
                     
         if not isinstance(vrange,int):
             usage()
+        
+        vrange_code = "BIP%dV"%(vrange)
+        
+        new_conf = (mode,vrange,lowchan,highchan,frequency,nsamples)
             
-        vrange_code = "BIP%dV"%(vrange)        
+        if new_conf == self.conf:
+            return
         
         # setup the scan
+        self.send_message("AI:CHMODE="+mode)
         self.send_message("AISCAN:RANGE="+vrange_code)
         self.send_message("AISCAN:LOWCHAN=%d"%(lowchan))
         self.send_message("AISCAN:HIGHCHAN=%d"%(highchan))
         self.send_message("AISCAN:RATE=%d"%(frequency))
         self.send_message("AISCAN:SAMPLES=%d"%(nsamples))
-        self.send_message("AISCAN:START")
         
-        raw = self.read_scan_data(nsamples,frequency)
-        
+        self.conf = new_conf
+
+    def stop(self):
         self.send_message("AISCAN:STOP")
-               
-        
-        import numpy as np
-        
-        data = np.array(raw)
-        
-        if highchan == lowchan:
-            if scale:
-                cal = self.calib_data[lowchan][mode][vrange_code]
-                return self.scale_and_calibrate_data(data, -vrange, vrange, cal)
-            return data
 
-        # if this is a multichannel scan, the samples from each
-        # channel come back interleaved in a single one dimensional
-        # array, so we have to break them up into a numpy array
-        # for each channel
-
-        nchannels = 1 + highchan - lowchan
-        
-        channel_length = nsamples / nchannels
-        
-        out = {}
-        
-        for chan in range(lowchan, max(lowchan + 1, highchan)):
-            
-            out[i] = data[chan::nchannels]
-            
-            if scale:
-                
-                key = (chan, mode, vrange_code)
-                
-                if not ( key in self.calib_data ):
-                    
-                    self.calib_data[key] = self.get_calib_data(chan)
-                    
-                cal = self.calib_data[key]
-                out[i] = self.scale_and_calibrate_data(out[i], -vrange, vrange, cal)
-                
-        return out
 
 class USB_7202(MCCDevice):
     """USB-7202 card"""
