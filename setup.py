@@ -3,6 +3,7 @@
 
 from setuptools import setup
 from gitversion import get_version
+from subprocess import call
 
 setup(
     name='pydaqflex',
@@ -34,3 +35,7 @@ setup(
     ],
 )
 
+import sys
+
+if "linux" in sys.platform:
+    call(["cp", "90-daqflex.rules", "/etc/udev/rules.d/90-daqflex.rules"])

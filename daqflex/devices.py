@@ -309,11 +309,15 @@ class MCCDevice(object):
             if self.read_recursion_depth < 10:
                 self.read_recursion_depth += 1
                 print>>stderr, "incorrect read length: %d samples, %d retries" %(len(raw),self.read_recursion_depth)
-#                self.flush_input_data() # this lines mere presence seems to mess things up somehow...
+                 # this lines mere presence seems to mess things up somehow on one
+                 # particular machine, but it hasn't been reproduced elsewhere yet.
+                 # Specifically, that machine was prone to having this conditional
+                 # get called a lot when it wasn't commented out.
+                self.flush_input_data()
                 return self.simple_read(frequency,nsamples,lowchan,highchan,vrange,mode,scale)
             else:
                 self.read_recursion_depth = 0
-                
+                              
         else:
             self.read_recursion_depth = 0
 
